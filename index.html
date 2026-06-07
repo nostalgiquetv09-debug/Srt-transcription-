@@ -542,10 +542,10 @@ async function transcrire() {
     formData.append('file', currentFile, currentFile.name);
     formData.append('model', MODEL);
     if (lang !== 'null') formData.append('language', lang);
-    formData.append('response_format', format === 'text' ? 'text' : format);
-    if (format === 'srt' || format === 'vtt') {
-      formData.append('timestamp_granularities[]', 'segment');
-    }
+    // Groq accepte seulement : text, json, verbose_json
+    const apiFormat = (format === 'text') ? 'text' : 'verbose_json';
+    formData.append('response_format', apiFormat);
+    formData.append('timestamp_granularities[]', 'segment');
 
     setProgress(30, 'Envoi vers Groq…');
 
@@ -562,7 +562,19 @@ async function transcrire() {
       throw new Error(err.error?.message || `Erreur ${resp.status}`);
     }
 
-    const data = await resp.text();
+    let data;
+    if (format === 'text') {
+      data = await resp.text();
+    } else {
+      const json = await resp.json();
+      if (format === 'srt') {
+        data = jsonToSrt(json);
+      } else if (format === 'vtt') {
+        data = jsonToVtt(json);
+      } else {
+        data = json.text || JSON.stringify(json, null, 2);
+      }
+    }
     setProgress(100, 'Terminé !');
 
     resultContent = data;
@@ -625,6 +637,33 @@ function downloadResult() {
   a.href = URL.createObjectURL(blob);
   a.download = `transcription.${ext}`;
   a.click();
+}
+
+function pad(n) { return String(Math.floor(n)).padStart(2,'0'); }
+function toSrtTime(s) {
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const sec = Math.floor(s%60);
+  const ms = Math.round((s - Math.floor(s))*1000);
+  return pad(h)+':'+pad(m)+':'+pad(sec)+','+String(ms).padStart(3,'0');
+}
+function toVttTime(s) { return toSrtTime(s).replace(',','.'); }
+
+function jsonToSrt(json) {
+  const segs = json.segments || [];
+  return segs.map((seg, i) => {
+    return (i+1)+'\n'+toSrtTime(seg.start)+' --> '+toSrtTime(seg.end)+'\n'+seg.text.trim()+'\n';
+  }).join('\n');
+}
+function jsonToVtt(json) {
+  const segs = json.segments || [];
+  const lines = ['WEBVTT',''];
+  segs.forEach((seg, i) => {
+    lines.push(toVttTime(seg.start)+' --> '+toVttTime(seg.end));
+    lines.push(seg.text.trim());
+    lines.push('');
+  });
+  return lines.join('\n');
 }
 </script>
 </body>
