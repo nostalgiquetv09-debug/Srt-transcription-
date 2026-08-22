@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Transcripteur — Whisper</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0c0c0f;
+    --surface: #15151a;
+    --border: rgba(255,255,255,0.07);
+    --accent: #7c5cfc;
+    --accent2: #c084fc;
+    --green: #4ade80;
+    --text: #e8e8f0;
+    --muted: rgba(232,232,240,0.4);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 60px;
+  }
+
+  /* Fond animé */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 20%, rgba(124,92,252,0.12), transparent 60%),
+      radial-gradient(ellipse 40% 40% at 80% 80%, rgba(192,132,252,0.08), transparent 60%);
+  }
+
+  .container {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 680px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .header-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(124,92,252,0.15);
+    border: 1px solid rgba(124,92,252,0.3);
+    border-radius: 100px;
+    padding: 6px 16px;
+    font-size: 0.7rem;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent2);
+    margin-bottom: 20px;
+  }
+  .dot-live {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+  .header h1 {
+    font-size: clamp(2rem, 6vw, 3.2rem);
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+  .header h1 span { color: var(--accent); }
+  .header p {
+    font-size: 0.95rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+    margin-bottom: 20px;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed rgba(124,92,252,0.3);
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(124,92,252,0.03);
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(124,92,252,0.08);
+  }
+  .upload-zone input {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-icon { font-size: 2.5rem; margin-bottom: 14px; }
+  .upload-title {
+    font-size: 1.1rem; font-weight: 600; margin-bottom: 6px;
+  }
+  .upload-sub { font-size: 0.8rem; color: var(--muted); }
+
+  /* File info */
+  .file-info {
+    display: none;
+    align-items: center; gap: 14px;
+    background: rgba(124,92,252,0.1);
+    border: 1px solid rgba(124,92,252,0.2);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-top: 16px;
+  }
+  .file-info.show { display: flex; }
+  .file-icon { font-size: 1.6rem; }
+  .file-details { flex: 1; min-width: 0; }
+  .file-name {
+    font-weight: 600; font-size: 0.9rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file-size { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+  /* Options */
+  .options {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin-top: 24px;
+  }
+  .option-group label {
+    display: block;
+    font-size: 0.72rem;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .option-group select {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 14px;
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='rgba(255,255,255,0.4)'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  .option-group select:focus { outline: none; border-color: var(--accent); }
+
+  /* Bouton */
+  .btn {
+    width: 100%;
+    margin-top: 24px;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: opacity 0.2s, transform 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:active { transform: scale(0.99); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Progress */
+  .progress-wrap {
+    display: none;
+    margin-top: 20px;
+  }
+  .progress-wrap.show { display: block; }
+  .progress-label {
+    display: flex; justify-content: space-between;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+    font-family: 'Space Mono', monospace;
+  }
+  .progress-bar-bg {
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 100px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 100px;
+    width: 0%;
+    transition: width 0.3s ease;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  /* Résultat */
+  .result-card {
+    display: none;
+    background: var(--surface);
+    border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin-bottom: 20px;
+  }
+  .result-card.show { display: block; }
+  .result-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .result-title {
+    font-size: 0.72rem;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--green);
+  }
+  .result-actions { display: flex; gap: 10px; }
+  .btn-small {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+    transition: all 0.2s;
+  }
+  .btn-small:hover { background: rgba(255,255,255,0.12); }
+  .btn-small.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-color: transparent;
+    color: #fff;
+  }
+
+  .result-text {
+    font-size: 0.9rem;
+    line-height: 1.8;
+    color: rgba(232,232,240,0.85);
+    white-space: pre-wrap;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+  .result-text::-webkit-scrollbar { width: 4px; }
+  .result-text::-webkit-scrollbar-track { background: transparent; }
+  .result-text::-webkit-scrollbar-thumb { background: rgba(124,92,252,0.4); border-radius: 2px; }
+
+  /* SRT preview */
+  .srt-preview {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.9;
+    color: rgba(232,232,240,0.75);
+    white-space: pre;
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex; gap: 4px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 20px;
+  }
+  .tab-btn {
+    flex: 1; padding: 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tab-btn.active {
+    background: rgba(124,92,252,0.25);
+    color: var(--accent2);
+  }
+
+  /* Error */
+  .error-msg {
+    display: none;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-size: 0.85rem;
+    color: #fca5a5;
+    margin-top: 16px;
+  }
+  .error-msg.show { display: block; }
+
+  /* Stats */
+  .stats-row {
+    display: flex; gap: 16px; margin-top: 20px;
+  }
+  .stat-box {
+    flex: 1;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    text-align: center;
+  }
+  .stat-val {
+    font-size: 1.4rem; font-weight: 800;
+    color: var(--accent2);
+    font-family: 'Space Mono', monospace;
+  }
+  .stat-lbl {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-badge">
+      <div class="dot-live"></div>
+      Whisper Large v3 · Groq
+    </div>
+    <h1>Trans<span>cripteur</span></h1>
+    <p>Upload ton épisode audio, choisis la langue et le format.<br>La transcription sort en quelques secondes.</p>
+  </div>
+
+  <div class="card">
+    <div class="option-group" style="margin-bottom:20px;">
+      <label>Clé API Groq</label>
+      <input type="password" id="apiKeyInput" placeholder="gsk_..." style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);border-radius:10px;color:#e8e8f0;padding:10px 14px;font-family:'Syne',sans-serif;font-size:0.9rem;" oninput="checkReady()"/>
+      <div style="font-size:0.7rem;color:rgba(232,232,240,0.35);margin-top:6px;">Ta clé n'est jamais sauvegardée ni envoyée ailleurs que Groq.</div>
+    </div>
+
+    <div class="upload-zone" id="dropzone">
+      <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.mp4,.wav,.m4a,.ogg,.flac,.mov,.webm"/>
+      <div class="upload-icon">🎙️</div>
+      <div class="upload-title">Glisse ton fichier ici</div>
+      <div class="upload-sub">MP3 · MP4 · WAV · M4A · MOV · FLAC — fichiers volumineux découpés automatiquement</div>
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <div class="file-icon">🎵</div>
+      <div class="file-details">
+        <div class="file-name" id="fileName">—</div>
+        <div class="file-size" id="fileSize">—</div>
+      </div>
+    </div>
+
+    <div class="options">
+      <div class="option-group">
+        <label>Langue audio</label>
+        <select id="langSelect">
+          <option value="es">Espagnol 🇪🇸</option>
+          <option value="fr">Français 🇫🇷</option>
+          <option value="en">Anglais 🇬🇧</option>
+          <option value="pt">Portugais 🇧🇷</option>
+          <option value="ar">Arabe</option>
+          <option value="null">Détection auto</option>
+        </select>
+      </div>
+      <div class="option-group">
+        <label>Format sortie</label>
+        <select id="formatSelect">
+          <option value="srt">SRT (sous-titres)</option>
+          <option value="text">Texte brut</option>
+          <option value="vtt">VTT</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn" id="transcribeBtn" disabled>
+      ✦ Transcrire
+    </button>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-label">
+        <span id="progressLabel">Envoi en cours…</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <div class="result-card" id="resultCard">
+    <div class="result-header">
+      <div class="result-title">✓ Transcription terminée</div>
+      <div class="result-actions">
+        <button class="btn-small" onclick="copyResult()">Copier</button>
+        <button class="btn-small primary" onclick="downloadResult()">Télécharger</button>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" onclick="switchTab('result')">Résultat</button>
+      <button class="tab-btn" onclick="switchTab('stats')">Stats</button>
+    </div>
+
+    <div id="tabResult">
+      <div class="result-text srt-preview" id="resultText"></div>
+    </div>
+
+    <div id="tabStats" style="display:none;">
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-val" id="statMots">—</div>
+          <div class="stat-lbl">Mots</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statLignes">—</div>
+          <div class="stat-lbl">Lignes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statDuree">—</div>
+          <div class="stat-lbl">Secondes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const MODEL   = 'whisper-large-v3-turbo';
+
+let currentFile = null;
+let resultContent = '';
+let currentFormat = 'srt';
+
+const fileInput   = document.getElementById('fileInput');
+const fileInfo    = document.getElementById('fileInfo');
+const fileName    = document.getElementById('fileName');
+const fileSize    = document.getElementById('fileSize');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const progressWrap  = document.getElementById('progressWrap');
+const progressBar   = document.getElementById('progressBar');
+const progressLabel = document.getElementById('progressLabel');
+const progressPct   = document.getElementById('progressPct');
+const errorMsg    = document.getElementById('errorMsg');
+const resultCard  = document.getElementById('resultCard');
+const resultText  = document.getElementById('resultText');
+const dropzone    = document.getElementById('dropzone');
+
+// Drag & drop
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) setFile(fileInput.files[0]);
+});
+
+function setFile(f) {
+  currentFile = f;
+  fileName.textContent = f.name;
+  fileSize.textContent = formatSize(f.size);
+  fileInfo.classList.add('show');
+  errorMsg.classList.remove('show');
+  resultCard.classList.remove('show');
+  checkReady();
+}
+
+function checkReady() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  transcribeBtn.disabled = !(currentFile && key.length > 10);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+
+transcribeBtn.addEventListener('click', transcrire);
+
+// Limite réelle de l'API Groq (tier gratuit) : 25 MB. On vise 24 MB par
+// morceau pour garder une marge de sécurité (en-têtes, arrondis, etc.)
+const TARGET_CHUNK_BYTES = 24 * 1024 * 1024;
+
+async function transcrire() {
+  if (!currentFile) return;
+  const API_KEY = document.getElementById('apiKeyInput').value.trim();
+  if (!API_KEY) return;
+
+  const lang   = document.getElementById('langSelect').value;
+  const format = document.getElementById('formatSelect').value;
+  currentFormat = format;
+
+  // UI
+  transcribeBtn.disabled = true;
+  errorMsg.classList.remove('show');
+  resultCard.classList.remove('show');
+  progressWrap.classList.add('show');
+  setProgress(5, 'Décodage du fichier audio…');
+
+  try {
+    // On convertit tout en mono 16kHz : c'est de toute façon ce que Whisper
+    // utilise en interne, et ça permet de calculer précisément la taille
+    // réelle des données à envoyer pour savoir s'il faut découper.
+    const { samples, sampleRate } = await decodeToMono16k(currentFile);
+
+    const bytesPerSec = sampleRate * 2; // PCM 16 bits mono
+    const maxSamplesPerChunk = Math.floor((TARGET_CHUNK_BYTES - 44) / 2);
+    const totalSamples = samples.length;
+    const nbChunks = Math.max(1, Math.ceil(totalSamples / maxSamplesPerChunk));
+    const samplesPerChunk = Math.ceil(totalSamples / nbChunks);
+
+    let allWords = [];
+    let allTexts = [];
+
+    for (let i = 0; i < nbChunks; i++) {
+      const startSample = i * samplesPerChunk;
+      const endSample = Math.min(totalSamples, startSample + samplesPerChunk);
+      const chunkSamples = samples.subarray(startSample, endSample);
+      const chunkOffsetSec = startSample / sampleRate;
+
+      const basePct = 10 + Math.round((i / nbChunks) * 75);
+      setProgress(basePct, nbChunks > 1 ? `Envoi du morceau ${i+1}/${nbChunks}…` : 'Envoi vers Groq…');
+
+      const wavBlob = audioBufferToWav(chunkSamples, sampleRate);
+      const formData = new FormData();
+      formData.append('file', wavBlob, `audio_${i+1}.wav`);
+      formData.append('model', MODEL);
+      if (lang !== 'null') formData.append('language', lang);
+      // Groq accepte seulement : text, json, verbose_json
+      const apiFormat = (format === 'text') ? 'text' : 'verbose_json';
+      formData.append('response_format', apiFormat);
+      if (format !== 'text') {
+        formData.append('timestamp_granularities[]', 'segment');
+        formData.append('timestamp_granularities[]', 'word');
+      }
+
+      const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${API_KEY}` },
+        body: formData
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        const prefix = nbChunks > 1 ? `Morceau ${i+1}/${nbChunks} — ` : '';
+        throw new Error(prefix + (err.error?.message || `Erreur ${resp.status}`));
+      }
+
+      if (format === 'text') {
+        allTexts.push((await resp.text()).trim());
+      } else {
+        const json = await resp.json();
+        if (json.text) allTexts.push(json.text.trim());
+        if (json.words && json.words.length) {
+          json.words.forEach(w => allWords.push({ word: w.word, start: w.start + chunkOffsetSec, end: w.end + chunkOffsetSec }));
+        } else if (json.segments && json.segments.length) {
+          json.segments.forEach(seg => allWords.push({ word: seg.text, start: seg.start + chunkOffsetSec, end: seg.end + chunkOffsetSec }));
+        }
+      }
+    }
+
+    setProgress(95, 'Assemblage du résultat…');
+
+    let data;
+    if (format === 'text') {
+      data = allTexts.join(' ').replace(/\s+/g, ' ').trim();
+    } else {
+      const cues = fixOverlaps(buildCuesFromWords(allWords) || []);
+      data = format === 'srt' ? cuesToSrt(cues) : cuesToVtt(cues);
+    }
+    setProgress(100, 'Terminé !');
+
+    resultContent = data;
+    resultText.textContent = data;
+
+    // Stats
+    const mots = data.split(/\s+/).filter(Boolean).length;
+    const lignes = data.split('\n').filter(Boolean).length;
+    const dureeMatch = data.match(/(\d{2}):(\d{2}):(\d{2})/g);
+    let duree = '—';
+    if (dureeMatch && dureeMatch.length > 0) {
+      const last = dureeMatch[dureeMatch.length - 1].split(':');
+      const secs = parseInt(last[0])*3600 + parseInt(last[1])*60 + parseInt(last[2]);
+      duree = secs + 's';
+    }
+    document.getElementById('statMots').textContent = mots;
+    document.getElementById('statLignes').textContent = lignes;
+    document.getElementById('statDuree').textContent = duree;
+
+    setTimeout(() => {
+      progressWrap.classList.remove('show');
+      resultCard.classList.add('show');
+      transcribeBtn.disabled = false;
+    }, 600);
+
+  } catch(e) {
+    progressWrap.classList.remove('show');
+    errorMsg.textContent = '⚠️ ' + e.message;
+    errorMsg.classList.add('show');
+    transcribeBtn.disabled = false;
+  }
+}
+
+function setProgress(pct, label) {
+  progressBar.style.width = pct + '%';
+  progressLabel.textContent = label;
+  progressPct.textContent = pct + '%';
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    b.classList.toggle('active', (i === 0 && tab === 'result') || (i === 1 && tab === 'stats'));
+  });
+  document.getElementById('tabResult').style.display = tab === 'result' ? '' : 'none';
+  document.getElementById('tabStats').style.display  = tab === 'stats'  ? '' : 'none';
+}
+
+function copyResult() {
+  navigator.clipboard.writeText(resultContent).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copié ✓';
+    setTimeout(() => btn.textContent = 'Copier', 2000);
+  });
+}
+
+function downloadResult() {
+  const ext = currentFormat === 'text' ? 'txt' : currentFormat;
+  const blob = new Blob([resultContent], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `transcription.${ext}`;
+  a.click();
+}
+
+function pad(n) { return String(Math.floor(n)).padStart(2,'0'); }
+function toSrtTime(s) {
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const sec = Math.floor(s%60);
+  const ms = Math.round((s - Math.floor(s))*1000);
+  return pad(h)+':'+pad(m)+':'+pad(sec)+','+String(ms).padStart(3,'0');
+}
+function toVttTime(s) { return toSrtTime(s).replace(',','.'); }
+
+// --- Re-segmentation à partir des timestamps mot par mot ---
+// Objectif : un sous-titre par réplique/phrase, coupé sur les silences
+// et la ponctuation de fin de phrase, plutôt que les gros blocs bruts de Whisper.
+const SILENCE_GAP = 0.45;   // secondes de silence entre deux mots => nouvelle réplique
+const MAX_CHARS    = 84;    // longueur max avant de forcer une coupure (2 lignes lisibles)
+const MAX_DURATION = 7;     // secondes max pour un sous-titre, même sans silence détecté
+
+function buildCuesFromWords(words) {
+  if (!words || !words.length) return null;
+  const cues = [];
+  let current = [];
+
+  function flush() {
+    if (!current.length) return;
+    const text = current.map(w => w.word.trim()).join(' ').replace(/\s+([,.!?;:])/g, '$1');
+    cues.push({
+      start: current[0].start,
+      end: current[current.length - 1].end,
+      text: text.trim()
+    });
+    current = [];
+  }
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const prev = current[current.length - 1];
+
+    if (prev) {
+      const gap = w.start - prev.end;
+      const wouldBeLen = current.map(x => x.word).join(' ').length + w.word.length;
+      const prevEndsSentence = /[.!?…]$/.test(prev.word.trim());
+      const currentDuration = w.start - current[0].start;
+
+      if (gap >= SILENCE_GAP || prevEndsSentence || wouldBeLen > MAX_CHARS || currentDuration > MAX_DURATION) {
+        flush();
+      }
+    }
+    current.push(w);
+  }
+  flush();
+  return cues;
+}
+
+// Corrige les chevauchements : garantit que chaque sous-titre se termine
+// avant (ou au moment où) le suivant commence. Whisper peut renvoyer des
+// timestamps qui se chevauchent légèrement (voix qui se superposent,
+// hésitations, répétitions) — sans ça, deux répliques peuvent s'afficher
+// en même temps à l'écran.
+const MIN_GAP = 0.02; // secondes, pour garder une frontière nette entre deux répliques
+
+function fixOverlaps(cues) {
+  for (let i = 1; i < cues.length; i++) {
+    const prev = cues[i - 1];
+    const cur = cues[i];
+    if (cur.start < prev.end + MIN_GAP) {
+      // Le sous-titre précédent empiète sur le suivant : on raccourcit sa fin.
+      const newEnd = Math.max(prev.start + 0.3, cur.start - MIN_GAP);
+      prev.end = newEnd;
+    }
+  }
+  return cues;
+}
+
+function cuesToSrt(cues) {
+  return cues.map((c, i) => {
+    return (i+1)+'\n'+toSrtTime(c.start)+' --> '+toSrtTime(c.end)+'\n'+c.text+'\n';
+  }).join('\n');
+}
+function cuesToVtt(cues) {
+  const lines = ['WEBVTT',''];
+  cues.forEach(c => {
+    lines.push(toVttTime(c.start)+' --> '+toVttTime(c.end));
+    lines.push(c.text);
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+// --- Décodage + rééchantillonnage en mono 16kHz ---
+// C'est la fréquence que Whisper utilise en interne de toute façon, donc on
+// ne perd rien en qualité de reconnaissance, et ça donne des fichiers PCM
+// dont on peut calculer la taille exacte pour décider du découpage.
+async function decodeToMono16k(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let decoded;
+  try {
+    decoded = await tempCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    tempCtx.close();
+  }
+
+  const targetRate = 16000;
+  const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offlineCtx.destination);
+  source.start(0);
+  const rendered = await offlineCtx.startRendering();
+
+  return { samples: rendered.getChannelData(0), sampleRate: targetRate };
+}
+
+// Encode un tableau d'échantillons PCM float32 (mono) en WAV 16 bits.
+function audioBufferToWav(samples, sampleRate) {
+  const numChannels = 1;
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeWavString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeWavString(view, 8, 'WAVE');
+  writeWavString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeWavString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([view], { type: 'audio/wav' });
+}
+function writeWavString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+</script>
+</body>
+</html>
